@@ -37,7 +37,13 @@ const (
 	defaultWidth       = 80
 	previewSplitWidth  = 92
 	minPreviewWidth    = 36
-	maxPreviewWidth    = 52
+	// Ceiling on the preview pane rather than a target: previewLayout takes
+	// half the available width and clamps it here. At 52 the preview stopped
+	// growing once the picker passed roughly 104 columns, so on a wide
+	// terminal every additional column went to the workspace list while the
+	// preview stayed wrapped at 52. A higher ceiling keeps the split
+	// proportional at normal sizes and still bounds it on ultra-wide displays.
+	maxPreviewWidth    = 120
 	previewTitleRows   = 1
 	pickerChromeRows   = 8
 	compactPreviewBody = 6
