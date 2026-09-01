@@ -55,6 +55,7 @@ path_components = 1
 [picker]
 show_icons = true
 show_preview = true
+preview_width = "50%"
 prioritize_home = false
 herdr_theme_inherit = true
 replace_worktree_icon = true
@@ -196,6 +197,7 @@ equivalent; native decoding rejects them like any other unknown key.
 | --- | --- |
 | `show_icons` | Shows Nerd Font source icons in the native picker. The default is `false`; source names remain visible when icons are hidden. |
 | `show_preview` | Shows the preview panel in the native picker. The default is `true`; set it to `false` to give the workspace list the full available width and height without running preview commands. This does not change fzf preview behavior. |
+| `preview_width` | Sets the width of the native picker's preview panel, as either a percentage of the picker width (`"50%"`) or a fixed column count (`"100"`). Unset is the default and keeps the historical layout, which takes half the width but stops growing at 52 columns, so on a wide terminal every further column goes to the workspace list. A percentage is usually preferable because it survives a resize. Values are clamped so the preview keeps at least 36 columns and the workspace list at least 40, and no preview is drawn at all below 88 columns. This does not change fzf preview behavior. |
 | `prioritize_home` | Controls exact case-insensitive `home` searches in the native picker. The default is `true`, which promotes the actual home-directory session ahead of real-name and ordinary path matches. Set it to `false` to keep real-name matches first, then path matches in their existing order; the actual home-directory session remains searchable through the exact `home` alias. |
 | `herdr_theme_inherit` | Inherits colors from Herdr's active theme. The default is `true`; set it to `false` to keep the native picker's built-in colors. |
 | `replace_worktree_icon` | Replaces the Herdr sheep icon with `↳` for linked worktree rows. The default is `true`. Set it to `false` to keep the sheep icon (or plain `[herdr]` when icons are hidden); the purple type color and tree branches remain. |

@@ -37,13 +37,13 @@ const (
 	defaultWidth       = 80
 	previewSplitWidth  = 92
 	minPreviewWidth    = 36
-	// Ceiling on the preview pane rather than a target: previewLayout takes
-	// half the available width and clamps it here. At 52 the preview stopped
-	// growing once the picker passed roughly 104 columns, so on a wide
-	// terminal every additional column went to the workspace list while the
-	// preview stayed wrapped at 52. A higher ceiling keeps the split
-	// proportional at normal sizes and still bounds it on ultra-wide displays.
-	maxPreviewWidth    = 120
+	// Default ceiling, applied only when picker.preview_width is unset. It is
+	// why an unconfigured preview stops growing once the picker passes roughly
+	// 104 columns; setting picker.preview_width opts out of it.
+	maxPreviewWidth = 52
+	// Columns the workspace list keeps when picker.preview_width asks for more
+	// than the picker can spare.
+	minListWidth       = 40
 	previewTitleRows   = 1
 	pickerChromeRows   = 8
 	compactPreviewBody = 6
@@ -145,6 +145,8 @@ type Options struct {
 	SeparatorAware                 bool
 	DisableHomePrioritization      bool
 	HidePreview                    bool
+	PreviewWidthPercent            int
+	PreviewWidthColumns            int
 	DefaultPreviewCommand          string
 	FZFCommand                     string
 	RefreshAgentStatuses           func() (map[string]string, error)
@@ -216,6 +218,7 @@ type teaModel struct {
 
 	defaultPreviewCommand   string
 	hidePreview             bool
+	previewWidth            previewWidthSpec
 	showIcons               bool
 	replaceWorktreeIcon     bool
 	hideLastWorkspace       bool
@@ -310,6 +313,7 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 		agentSpinner:          spinner.New(spinner.WithSpinner(agentStatusSpinner)),
 		defaultPreviewCommand: opts.DefaultPreviewCommand,
 		hidePreview:           opts.HidePreview,
+		previewWidth:          previewWidthSpec{percent: opts.PreviewWidthPercent, columns: opts.PreviewWidthColumns},
 		showIcons:             opts.ShowIcons,
 		replaceWorktreeIcon:   !opts.DisableWorktreeIconReplacement,
 		hideLastWorkspace:     opts.HideLastWorkspace,
@@ -713,7 +717,7 @@ func refreshAgentStatusesCommand(refresh func() (map[string]string, error)) tea.
 
 func (m teaModel) View() tea.View {
 	width := m.contentWidth()
-	listWidth, previewWidth := previewLayout(width)
+	listWidth, previewWidth := previewLayout(width, m.previewWidth)
 	lines := []string{"", m.header(width), horizontalRule(width)}
 	input := m.input
 	input.SetWidth(maxInt(8, width-lipgloss.Width(input.Prompt)-1))
@@ -1158,7 +1162,7 @@ func (m teaModel) focusSmearDistance() int {
 	visibleRows := m.previewBodyLines()
 	if m.hidePreview {
 		visibleRows = m.listOnlyBodyLines()
-	} else if _, previewWidth := previewLayout(m.contentWidth()); previewWidth == 0 {
+	} else if _, previewWidth := previewLayout(m.contentWidth(), m.previewWidth); previewWidth == 0 {
 		visibleRows, _ = m.stackedBodyLines()
 	}
 	start, _, moreAbove, _ := listWindow(len(m.list.Filtered), m.list.Selected, visibleRows)
@@ -1310,13 +1314,22 @@ func previewCommand(ctx context.Context, key string, requestID uint64, s session
 	}
 }
 
-func previewLayout(width int) (int, int) {
+func previewLayout(width int, spec previewWidthSpec) (int, int) {
 	if width < previewSplitWidth-horizontalPadding*2 {
 		return width, 0
 	}
-	previewWidth := width / 2
-	if previewWidth > maxPreviewWidth {
-		previewWidth = maxPreviewWidth
+	var previewWidth int
+	if spec.isSet() {
+		previewWidth = spec.resolve(width)
+		// A configured width must never squeeze the workspace list out.
+		if ceiling := width - minListWidth - 3; previewWidth > ceiling {
+			previewWidth = ceiling
+		}
+	} else {
+		previewWidth = width / 2
+		if previewWidth > maxPreviewWidth {
+			previewWidth = maxPreviewWidth
+		}
 	}
 	if previewWidth < minPreviewWidth {
 		previewWidth = minPreviewWidth

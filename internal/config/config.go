@@ -41,7 +41,11 @@ type SessionConfig struct {
 type TUIConfig struct {
 	ShowIcons bool `toml:"show_icons"`
 	// ShowPreview is native-only; the legacy Sesh schema has no equivalent setting.
-	ShowPreview           bool   `toml:"-"`
+	ShowPreview bool `toml:"-"`
+	// PreviewWidth* are native-only, parsed from picker.preview_width. Both
+	// zero means "use the picker default".
+	PreviewWidthPercent   int    `toml:"-"`
+	PreviewWidthColumns   int    `toml:"-"`
 	PrioritizeHome        bool   `toml:"-"`
 	HerdrThemeInherit     bool   `toml:"herdr_theme_inherit"`
 	ReplaceWorktreeIcon   bool   `toml:"replace_worktree_icon"`

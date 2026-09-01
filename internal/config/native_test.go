@@ -199,6 +199,34 @@ show_last_workspace_path = false
 	}
 }
 
+func TestNativePickerAcceptsPreviewWidth(t *testing.T) {
+	tests := map[string]struct {
+		body        string
+		wantPercent int
+		wantColumns int
+	}{
+		"percentage":  {"preview_width = \"60%\"\n", 60, 0},
+		"columns":     {"preview_width = \"100\"\n", 0, 100},
+		"padded":      {"preview_width = \" 45 % \"\n", 45, 0},
+		"unset":       {"", 0, 0},
+		"empty value": {"preview_width = \"\"\n", 0, 0},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			cfg, err := loadNative(t, "version = 1\n[picker]\n"+tc.body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.TUI.PreviewWidthPercent != tc.wantPercent {
+				t.Fatalf("percent = %d, want %d", cfg.TUI.PreviewWidthPercent, tc.wantPercent)
+			}
+			if cfg.TUI.PreviewWidthColumns != tc.wantColumns {
+				t.Fatalf("columns = %d, want %d", cfg.TUI.PreviewWidthColumns, tc.wantColumns)
+			}
+		})
+	}
+}
+
 func TestNativeEmptyPreviewFallsBackToDefault(t *testing.T) {
 	cfg, err := loadNative(t, "version = 1\n[workspace_defaults]\npreview = \"\"\n")
 	if err != nil {
@@ -214,26 +242,30 @@ func TestNativeFailures(t *testing.T) {
 		body string
 		want string
 	}{
-		"unsupported version":  {"version = 2\n", "version"},
-		"zero version":         {"version = 0\n", "version"},
-		"unknown field":        {"version = 1\nwat = 1\n", "wat"},
-		"unknown nested field": {"version = 1\n[picker]\ntheme = \"dark\"\n", "theme"},
-		"legacy key rejected":  {"version = 1\nstrict_mode = true\n", "strict_mode"},
-		"import rejected":      {"version = 1\nimport = [\"x.toml\"]\n", "import"},
-		"bad sort":             {"version = 1\n[picker]\nworkspace_sort = \"newest\"\n", "picker.workspace_sort: must be \"workspace\" or \"recent\" or \"agent\""},
-		"bad path components":  {"version = 1\n[naming]\npath_components = 0\n", "path_components"},
-		"unknown source":       {"version = 1\n[list]\nsource_order = [\"tmux\"]\n", "source_order"},
-		"duplicate source":     {"version = 1\n[list]\nsource_order = [\"dir\", \"dir\"]\n", "source_order"},
-		"bad regex":            {"version = 1\n[list]\nblacklist = [\"[\"]\n", "blacklist"},
-		"bad glob":             {"version = 1\n[[rule]]\npath_glob = \"[\"\n", "path_glob"},
-		"empty glob":           {"version = 1\n[[rule]]\npath_glob = \"\"\n", "path_glob"},
-		"empty tab name":       {"version = 1\n[[tab]]\nstartup = \"x\"\n", "tab.name"},
-		"duplicate tab":        {"version = 1\n[[tab]]\nname = \"g\"\n[[tab]]\nname = \"g\"\n", "tab.name"},
-		"empty workspace name": {"version = 1\n[[workspace]]\npath = \"/x\"\n", "workspace.name"},
-		"empty workspace path": {"version = 1\n[[workspace]]\nname = \"x\"\n", "workspace.path"},
-		"duplicate workspace":  {"version = 1\n[[workspace]]\nname = \"x\"\npath = \"/x\"\n[[workspace]]\nname = \"x\"\npath = \"/y\"\n", "workspace.name"},
-		"missing tab ref":      {"version = 1\n[[workspace]]\nname = \"x\"\npath = \"/x\"\ntabs = [\"nope\"]\n", "workspace.tabs"},
-		"missing rule tab ref": {"version = 1\n[[rule]]\npath_glob = \"/x/**\"\ntabs = [\"nope\"]\n", "rule.tabs"},
+		"unsupported version":   {"version = 2\n", "version"},
+		"zero version":          {"version = 0\n", "version"},
+		"unknown field":         {"version = 1\nwat = 1\n", "wat"},
+		"unknown nested field":  {"version = 1\n[picker]\ntheme = \"dark\"\n", "theme"},
+		"legacy key rejected":   {"version = 1\nstrict_mode = true\n", "strict_mode"},
+		"import rejected":       {"version = 1\nimport = [\"x.toml\"]\n", "import"},
+		"bad sort":              {"version = 1\n[picker]\nworkspace_sort = \"newest\"\n", "picker.workspace_sort: must be \"workspace\" or \"recent\" or \"agent\""},
+		"bad path components":   {"version = 1\n[naming]\npath_components = 0\n", "path_components"},
+		"preview width words":   {"version = 1\n[picker]\npreview_width = \"wide\"\n", "picker.preview_width"},
+		"preview width 0 pct":   {"version = 1\n[picker]\npreview_width = \"0%\"\n", "between 1 and 100"},
+		"preview width big pct": {"version = 1\n[picker]\npreview_width = \"150%\"\n", "between 1 and 100"},
+		"preview width zero":    {"version = 1\n[picker]\npreview_width = \"0\"\n", "at least 1"},
+		"unknown source":        {"version = 1\n[list]\nsource_order = [\"tmux\"]\n", "source_order"},
+		"duplicate source":      {"version = 1\n[list]\nsource_order = [\"dir\", \"dir\"]\n", "source_order"},
+		"bad regex":             {"version = 1\n[list]\nblacklist = [\"[\"]\n", "blacklist"},
+		"bad glob":              {"version = 1\n[[rule]]\npath_glob = \"[\"\n", "path_glob"},
+		"empty glob":            {"version = 1\n[[rule]]\npath_glob = \"\"\n", "path_glob"},
+		"empty tab name":        {"version = 1\n[[tab]]\nstartup = \"x\"\n", "tab.name"},
+		"duplicate tab":         {"version = 1\n[[tab]]\nname = \"g\"\n[[tab]]\nname = \"g\"\n", "tab.name"},
+		"empty workspace name":  {"version = 1\n[[workspace]]\npath = \"/x\"\n", "workspace.name"},
+		"empty workspace path":  {"version = 1\n[[workspace]]\nname = \"x\"\n", "workspace.path"},
+		"duplicate workspace":   {"version = 1\n[[workspace]]\nname = \"x\"\npath = \"/x\"\n[[workspace]]\nname = \"x\"\npath = \"/y\"\n", "workspace.name"},
+		"missing tab ref":       {"version = 1\n[[workspace]]\nname = \"x\"\npath = \"/x\"\ntabs = [\"nope\"]\n", "workspace.tabs"},
+		"missing rule tab ref":  {"version = 1\n[[rule]]\npath_glob = \"/x/**\"\ntabs = [\"nope\"]\n", "rule.tabs"},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
