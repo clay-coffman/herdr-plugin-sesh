@@ -227,6 +227,27 @@ func TestNativePickerAcceptsPreviewWidth(t *testing.T) {
 	}
 }
 
+func TestNativePickerAcceptsPreviewAnchor(t *testing.T) {
+	for _, want := range []string{"top", "bottom"} {
+		t.Run(want, func(t *testing.T) {
+			cfg, err := loadNative(t, "version = 1\n[picker]\npreview_anchor = \""+want+"\"\n")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.TUI.PreviewAnchor != want {
+				t.Fatalf("anchor = %q, want %q", cfg.TUI.PreviewAnchor, want)
+			}
+		})
+	}
+	cfg, err := loadNative(t, "version = 1\n[picker]\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TUI.PreviewAnchor != "" {
+		t.Fatalf("unset anchor = %q, want empty", cfg.TUI.PreviewAnchor)
+	}
+}
+
 func TestNativeEmptyPreviewFallsBackToDefault(t *testing.T) {
 	cfg, err := loadNative(t, "version = 1\n[workspace_defaults]\npreview = \"\"\n")
 	if err != nil {
@@ -254,6 +275,7 @@ func TestNativeFailures(t *testing.T) {
 		"preview width 0 pct":   {"version = 1\n[picker]\npreview_width = \"0%\"\n", "between 1 and 100"},
 		"preview width big pct": {"version = 1\n[picker]\npreview_width = \"150%\"\n", "between 1 and 100"},
 		"preview width zero":    {"version = 1\n[picker]\npreview_width = \"0\"\n", "at least 1"},
+		"bad preview anchor":    {"version = 1\n[picker]\npreview_anchor = \"middle\"\n", "picker.preview_anchor"},
 		"unknown source":        {"version = 1\n[list]\nsource_order = [\"tmux\"]\n", "source_order"},
 		"duplicate source":      {"version = 1\n[list]\nsource_order = [\"dir\", \"dir\"]\n", "source_order"},
 		"bad regex":             {"version = 1\n[list]\nblacklist = [\"[\"]\n", "blacklist"},

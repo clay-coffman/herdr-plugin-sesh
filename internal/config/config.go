@@ -44,8 +44,10 @@ type TUIConfig struct {
 	ShowPreview bool `toml:"-"`
 	// PreviewWidth* are native-only, parsed from picker.preview_width. Both
 	// zero means "use the picker default".
-	PreviewWidthPercent   int    `toml:"-"`
-	PreviewWidthColumns   int    `toml:"-"`
+	PreviewWidthPercent int `toml:"-"`
+	PreviewWidthColumns int `toml:"-"`
+	// PreviewAnchor is native-only: "top" (the default) or "bottom".
+	PreviewAnchor         string `toml:"-"`
 	PrioritizeHome        bool   `toml:"-"`
 	HerdrThemeInherit     bool   `toml:"herdr_theme_inherit"`
 	ReplaceWorktreeIcon   bool   `toml:"replace_worktree_icon"`

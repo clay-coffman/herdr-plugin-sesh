@@ -147,6 +147,7 @@ type Options struct {
 	HidePreview                    bool
 	PreviewWidthPercent            int
 	PreviewWidthColumns            int
+	PreviewAnchorBottom            bool
 	DefaultPreviewCommand          string
 	FZFCommand                     string
 	RefreshAgentStatuses           func() (map[string]string, error)
@@ -219,6 +220,7 @@ type teaModel struct {
 	defaultPreviewCommand   string
 	hidePreview             bool
 	previewWidth            previewWidthSpec
+	previewAnchorBottom     bool
 	showIcons               bool
 	replaceWorktreeIcon     bool
 	hideLastWorkspace       bool
@@ -314,6 +316,7 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 		defaultPreviewCommand: opts.DefaultPreviewCommand,
 		hidePreview:           opts.HidePreview,
 		previewWidth:          previewWidthSpec{percent: opts.PreviewWidthPercent, columns: opts.PreviewWidthColumns},
+		previewAnchorBottom:   opts.PreviewAnchorBottom,
 		showIcons:             opts.ShowIcons,
 		replaceWorktreeIcon:   !opts.DisableWorktreeIconReplacement,
 		hideLastWorkspace:     opts.HideLastWorkspace,
@@ -1053,7 +1056,7 @@ func (m teaModel) previewView(width, maxLines int) string {
 	if text == "" {
 		text = "No preview available"
 	}
-	text = fixedVisualLines(text, width, maxLines)
+	text = fixedVisualLines(text, width, maxLines, m.previewAnchorBottom)
 	lines := append([]string{m.previewTitle()}, strings.Split(text, "\n")...)
 	for i := range lines {
 		lines[i] = fitLine(lines[i], width)
@@ -1337,15 +1340,25 @@ func previewLayout(width int, spec previewWidthSpec) (int, int) {
 	return width - previewWidth - 3, previewWidth
 }
 
-func fixedVisualLines(text string, width, count int) string {
+// fixedVisualLines fits text to exactly count visual lines at the given width.
+// When it has to drop lines, anchorBottom decides which end survives: the
+// default keeps the opening lines, which suits a directory listing, while
+// anchoring to the bottom keeps the closing lines, which suits a preview of
+// command output or a conversation where the newest text matters most. The
+// ellipsis marks the end that was dropped. Content shorter than count is
+// padded below either way, so the anchor only takes effect on truncation.
+func fixedVisualLines(text string, width, count int, anchorBottom bool) string {
 	if count < 1 {
 		count = 1
 	}
 	lines := strings.Split(lipgloss.NewStyle().Width(width).MaxWidth(width).Render(text), "\n")
 	if len(lines) > count {
-		if count == 1 {
+		switch {
+		case count == 1:
 			lines = []string{"..."}
-		} else {
+		case anchorBottom:
+			lines = append([]string{"..."}, lines[len(lines)-count+1:]...)
+		default:
 			lines = append(lines[:count-1], "...")
 		}
 	}

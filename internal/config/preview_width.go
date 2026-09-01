@@ -6,6 +6,13 @@ import (
 	"strings"
 )
 
+// Accepted picker.preview_anchor values. The anchor decides which end of a
+// too-long preview survives truncation.
+const (
+	PreviewAnchorTop    = "top"
+	PreviewAnchorBottom = "bottom"
+)
+
 // ParsePreviewWidth reads a picker.preview_width value into either a
 // percentage of the picker's content width or a fixed column count. Exactly
 // one of the two is non-zero on success; both are zero when raw is empty,

@@ -214,6 +214,7 @@ func pickerOptionsFromConfig(ctx context.Context, output io.Writer, cfg config.C
 		HidePreview:                    !cfg.TUI.ShowPreview,
 		PreviewWidthPercent:            cfg.TUI.PreviewWidthPercent,
 		PreviewWidthColumns:            cfg.TUI.PreviewWidthColumns,
+		PreviewAnchorBottom:            cfg.TUI.PreviewAnchor == config.PreviewAnchorBottom,
 		DefaultPreviewCommand:          cfg.DefaultSessionConfig.PreviewCommand,
 		WorkspaceSort:                  cfg.TUI.DefaultSort,
 	}

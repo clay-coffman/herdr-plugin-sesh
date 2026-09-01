@@ -44,6 +44,7 @@ type nativePicker struct {
 	ShowIcons             bool   `toml:"show_icons"`
 	ShowPreview           *bool  `toml:"show_preview,omitempty"`
 	PreviewWidth          string `toml:"preview_width,omitempty"`
+	PreviewAnchor         string `toml:"preview_anchor,omitempty"`
 	PrioritizeHome        *bool  `toml:"prioritize_home,omitempty"`
 	HerdrThemeInherit     *bool  `toml:"herdr_theme_inherit,omitempty"`
 	ReplaceWorktreeIcon   *bool  `toml:"replace_worktree_icon,omitempty"`
@@ -130,6 +131,9 @@ func (n nativeConfig) validate(path string) error {
 	if _, _, err := ParsePreviewWidth(n.Picker.PreviewWidth); err != nil {
 		return fail("picker.preview_width", "%s", err)
 	}
+	if s := n.Picker.PreviewAnchor; s != "" && s != PreviewAnchorTop && s != PreviewAnchorBottom {
+		return fail("picker.preview_anchor", "must be %q or %q, got %q", PreviewAnchorTop, PreviewAnchorBottom, s)
+	}
 	seenSources := map[string]bool{}
 	for _, s := range n.List.SourceOrder {
 		if !knownSources[s] {
@@ -211,6 +215,9 @@ func (n nativeConfig) apply(cfg *Config) {
 	if pct, cols, err := ParsePreviewWidth(n.Picker.PreviewWidth); err == nil {
 		cfg.TUI.PreviewWidthPercent = pct
 		cfg.TUI.PreviewWidthColumns = cols
+	}
+	if n.Picker.PreviewAnchor != "" {
+		cfg.TUI.PreviewAnchor = n.Picker.PreviewAnchor
 	}
 	if n.Picker.PrioritizeHome != nil {
 		cfg.TUI.PrioritizeHome = *n.Picker.PrioritizeHome

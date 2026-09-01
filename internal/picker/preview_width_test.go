@@ -1,6 +1,9 @@
 package picker
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestPreviewLayoutUnsetKeepsDefaultCeiling(t *testing.T) {
 	tests := map[string]struct {
@@ -91,4 +94,60 @@ func TestPreviewWidthSpec(t *testing.T) {
 	if got := (previewWidthSpec{columns: 70}).resolve(200); got != 70 {
 		t.Fatalf("resolve(200) = %d, want 70", got)
 	}
+}
+
+// trimPad strips the right-hand padding lipgloss adds to every visual line, so
+// these cases can assert which lines survived rather than how they were padded.
+func trimPad(s string) string {
+	lines := strings.Split(s, "\n")
+	for i := range lines {
+		lines[i] = strings.TrimRight(lines[i], " ")
+	}
+	return strings.Join(lines, "\n")
+}
+
+func TestFixedVisualLinesAnchor(t *testing.T) {
+	text := "one\ntwo\nthree\nfour\nfive"
+
+	t.Run("top keeps the opening lines", func(t *testing.T) {
+		got := trimPad(fixedVisualLines(text, 20, 3, false))
+		want := "one\ntwo\n..."
+		if got != want {
+			t.Fatalf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("bottom keeps the closing lines", func(t *testing.T) {
+		got := trimPad(fixedVisualLines(text, 20, 3, true))
+		want := "...\nfour\nfive"
+		if got != want {
+			t.Fatalf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("single line has room only for the ellipsis", func(t *testing.T) {
+		for _, anchorBottom := range []bool{false, true} {
+			if got := trimPad(fixedVisualLines(text, 20, 1, anchorBottom)); got != "..." {
+				t.Fatalf("anchorBottom=%v: got %q, want %q", anchorBottom, got, "...")
+			}
+		}
+	})
+
+	t.Run("content that fits is padded below either way", func(t *testing.T) {
+		short := "one\ntwo"
+		want := "one\ntwo\n\n"
+		for _, anchorBottom := range []bool{false, true} {
+			if got := trimPad(fixedVisualLines(short, 20, 4, anchorBottom)); got != want {
+				t.Fatalf("anchorBottom=%v: got %q, want %q", anchorBottom, got, want)
+			}
+		}
+	})
+
+	t.Run("exact fit is untouched", func(t *testing.T) {
+		for _, anchorBottom := range []bool{false, true} {
+			if got := trimPad(fixedVisualLines(text, 20, 5, anchorBottom)); got != text {
+				t.Fatalf("anchorBottom=%v: got %q, want %q", anchorBottom, got, text)
+			}
+		}
+	})
 }
