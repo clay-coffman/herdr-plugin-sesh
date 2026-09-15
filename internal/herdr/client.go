@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -151,6 +152,9 @@ type CLIClient struct {
 	Bin     string
 	Runner  Runner
 	Timeout time.Duration
+	// Worktree decides whether a directory is a Git worktree root; nil means
+	// GitWorktreeRoots.
+	Worktree WorktreeResolver
 }
 
 func NewCLIClient() *CLIClient {
@@ -216,7 +220,60 @@ func (c *CLIClient) WorkspaceList(ctx context.Context) ([]Workspace, error) {
 	}
 	return ws, nil
 }
+
+// WorktreeResolver reports whether cwd is the root of a Git worktree. It
+// returns the worktree root and the repository's primary checkout, which is
+// the directory Herdr calls the repo parent workspace.
+type WorktreeResolver func(ctx context.Context, cwd string) (root, parent string, ok bool)
+
+// GitWorktreeRoots is the default WorktreeResolver. It asks git for the
+// top-level directory and the common .git directory, and accepts cwd only when
+// it is that top-level directory itself; a subdirectory of a checkout is not a
+// worktree root and keeps the plain workspace path.
+func GitWorktreeRoots(ctx context.Context, cwd string) (string, string, bool) {
+	if st, err := os.Stat(cwd); err != nil || !st.IsDir() {
+		return "", "", false
+	}
+	out, err := exec.CommandContext(ctx, "git", "-C", cwd, "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir").Output() //nolint:gosec // cwd is the user's chosen directory.
+	if err != nil {
+		return "", "", false
+	}
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	if len(lines) != 2 {
+		return "", "", false
+	}
+	top, common := strings.TrimSpace(lines[0]), strings.TrimSpace(lines[1])
+	if !sameDir(top, cwd) || filepath.Base(common) != ".git" {
+		return "", "", false
+	}
+	return top, filepath.Dir(common), true
+}
+
+func sameDir(a, b string) bool {
+	ra, errA := filepath.EvalSymlinks(a)
+	rb, errB := filepath.EvalSymlinks(b)
+	if errA != nil || errB != nil {
+		return filepath.Clean(a) == filepath.Clean(b)
+	}
+	return ra == rb
+}
+
+// WorkspaceCreate opens a workspace at r.CWD. When that directory is the root
+// of a Git worktree it runs `herdr worktree open`, which records the
+// repository link so the workspace nests under its repo group in the sidebar.
+// A bare `herdr workspace create --cwd` never records that link, even for a
+// Herdr-managed worktree, and leaves an orphan workspace. Any failure on the
+// worktree path falls back to the plain create so the picker keeps working.
 func (c *CLIClient) WorkspaceCreate(ctx context.Context, r WorkspaceCreateRequest) (Workspace, error) {
+	resolve := c.Worktree
+	if resolve == nil {
+		resolve = GitWorktreeRoots
+	}
+	if root, parent, ok := resolve(ctx, r.CWD); ok {
+		if w, err := c.worktreeOpen(ctx, parent, root, r); err == nil {
+			return w, nil
+		}
+	}
 	args := []string{"workspace", "create", "--cwd", r.CWD, "--label", r.Label}
 	if !r.Focus {
 		args = append(args, "--no-focus")
@@ -225,7 +282,23 @@ func (c *CLIClient) WorkspaceCreate(ctx context.Context, r WorkspaceCreateReques
 	if err != nil {
 		return Workspace{}, err
 	}
-	raw, wrapped, err := responseJSON(out, "workspace create")
+	return c.decodeCreatedWorkspace(ctx, out, "workspace create", r.Focus)
+}
+
+func (c *CLIClient) worktreeOpen(ctx context.Context, parent, root string, r WorkspaceCreateRequest) (Workspace, error) {
+	args := []string{"worktree", "open", "--cwd", parent, "--path", root, "--label", r.Label}
+	if !r.Focus {
+		args = append(args, "--no-focus")
+	}
+	out, err := c.run(ctx, args...)
+	if err != nil {
+		return Workspace{}, err
+	}
+	return c.decodeCreatedWorkspace(ctx, out, "worktree open", r.Focus)
+}
+
+func (c *CLIClient) decodeCreatedWorkspace(ctx context.Context, out []byte, command string, focus bool) (Workspace, error) {
+	raw, wrapped, err := responseJSON(out, command)
 	if err != nil {
 		return Workspace{}, err
 	}
@@ -235,7 +308,7 @@ func (c *CLIClient) WorkspaceCreate(ctx context.Context, r WorkspaceCreateReques
 			RootPane  Pane      `json:"root_pane"`
 		}
 		if err := json.Unmarshal(raw, &resp); err != nil {
-			return Workspace{}, fmt.Errorf("decode herdr workspace create JSON: %w", err)
+			return Workspace{}, fmt.Errorf("decode herdr %s JSON: %w", command, err)
 		}
 		if resp.Workspace.CWD == "" {
 			resp.Workspace.CWD = resp.RootPane.CWD
@@ -243,7 +316,7 @@ func (c *CLIClient) WorkspaceCreate(ctx context.Context, r WorkspaceCreateReques
 		if resp.Workspace.ForegroundCWD == "" {
 			resp.Workspace.ForegroundCWD = resp.RootPane.CWD
 		}
-		if r.Focus && resp.Workspace.ID != "" {
+		if focus && resp.Workspace.ID != "" {
 			if err := c.WorkspaceFocus(ctx, resp.Workspace.ID); err != nil {
 				return Workspace{}, err
 			}
@@ -252,9 +325,9 @@ func (c *CLIClient) WorkspaceCreate(ctx context.Context, r WorkspaceCreateReques
 	}
 	var w Workspace
 	if err := json.Unmarshal(raw, &w); err != nil {
-		return Workspace{}, fmt.Errorf("decode herdr workspace create JSON: %w", err)
+		return Workspace{}, fmt.Errorf("decode herdr %s JSON: %w", command, err)
 	}
-	if r.Focus && w.ID != "" {
+	if focus && w.ID != "" {
 		if err := c.WorkspaceFocus(ctx, w.ID); err != nil {
 			return Workspace{}, err
 		}

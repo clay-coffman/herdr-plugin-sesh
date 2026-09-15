@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -218,5 +219,122 @@ func TestCLIClientIncludesStderrOnCommandFailure(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "boom") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func stubWorktree(root, parent string) WorktreeResolver {
+	return func(_ context.Context, cwd string) (string, string, bool) {
+		if cwd != root {
+			return "", "", false
+		}
+		return root, parent, true
+	}
+}
+
+func noWorktree(_ context.Context, _ string) (string, string, bool) { return "", "", false }
+
+func TestCLIClientOpensWorktreeRootThroughWorktreeOpen(t *testing.T) {
+	rr := &recRunner{}
+	c := &CLIClient{Bin: "/bin/herdr", Runner: rr, Worktree: stubWorktree("/wt/feature", "/repos/project")}
+	_, err := c.WorkspaceCreate(context.Background(), WorkspaceCreateRequest{CWD: "/wt/feature", Label: "feature", Focus: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{
+		{"/bin/herdr", "worktree", "open", "--cwd", "/repos/project", "--path", "/wt/feature", "--label", "feature"},
+		{"/bin/herdr", "workspace", "focus", "ws1"},
+	}
+	if !reflect.DeepEqual(rr.calls, want) {
+		t.Fatalf("got %#v want %#v", rr.calls, want)
+	}
+}
+
+func TestCLIClientWorktreeOpenNoFocus(t *testing.T) {
+	rr := &recRunner{}
+	c := &CLIClient{Bin: "/bin/herdr", Runner: rr, Worktree: stubWorktree("/wt/feature", "/repos/project")}
+	if _, err := c.WorkspaceCreate(context.Background(), WorkspaceCreateRequest{CWD: "/wt/feature", Label: "feature"}); err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{{"/bin/herdr", "worktree", "open", "--cwd", "/repos/project", "--path", "/wt/feature", "--label", "feature", "--no-focus"}}
+	if !reflect.DeepEqual(rr.calls, want) {
+		t.Fatalf("got %#v want %#v", rr.calls, want)
+	}
+}
+
+type failThenRecordRunner struct {
+	calls [][]string
+}
+
+func (r *failThenRecordRunner) Run(_ context.Context, bin string, args ...string) ([]byte, []byte, error) {
+	r.calls = append(r.calls, append([]string{bin}, args...))
+	if len(args) > 0 && args[0] == "worktree" {
+		return []byte(`{"error":{"code":"linked_worktree_source"}}`), []byte("refused"), errors.New("exit status 1")
+	}
+	return []byte(`{"result":{"workspace":{"workspace_id":"w9","label":"feature"},"root_pane":{"cwd":"/wt/feature"}}}`), nil, nil
+}
+
+func TestCLIClientFallsBackToWorkspaceCreateWhenWorktreeOpenFails(t *testing.T) {
+	rr := &failThenRecordRunner{}
+	c := &CLIClient{Bin: "/bin/herdr", Runner: rr, Worktree: stubWorktree("/wt/feature", "/repos/project")}
+	w, err := c.WorkspaceCreate(context.Background(), WorkspaceCreateRequest{CWD: "/wt/feature", Label: "feature"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.ID != "w9" || w.CWD != "/wt/feature" {
+		t.Fatalf("workspace=%#v", w)
+	}
+	want := [][]string{
+		{"/bin/herdr", "worktree", "open", "--cwd", "/repos/project", "--path", "/wt/feature", "--label", "feature", "--no-focus"},
+		{"/bin/herdr", "workspace", "create", "--cwd", "/wt/feature", "--label", "feature", "--no-focus"},
+	}
+	if !reflect.DeepEqual(rr.calls, want) {
+		t.Fatalf("got %#v want %#v", rr.calls, want)
+	}
+}
+
+func TestCLIClientPlainDirectoryKeepsWorkspaceCreate(t *testing.T) {
+	rr := &recRunner{}
+	c := &CLIClient{Bin: "/bin/herdr", Runner: rr, Worktree: noWorktree}
+	if _, err := c.WorkspaceCreate(context.Background(), WorkspaceCreateRequest{CWD: "/tmp/notes", Label: "notes"}); err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{{"/bin/herdr", "workspace", "create", "--cwd", "/tmp/notes", "--label", "notes", "--no-focus"}}
+	if !reflect.DeepEqual(rr.calls, want) {
+		t.Fatalf("got %#v want %#v", rr.calls, want)
+	}
+}
+
+func TestGitWorktreeRootsRecognizesCheckoutRootOnly(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	repo := t.TempDir()
+	for _, args := range [][]string{{"init", "-q"}, {"commit", "-q", "--allow-empty", "-m", "init"}} {
+		cmd := exec.Command("git", append([]string{"-C", repo, "-c", "user.email=t@t", "-c", "user.name=t"}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+	sub := filepath.Join(repo, "sub")
+	if err := os.Mkdir(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	root, parent, ok := GitWorktreeRoots(context.Background(), repo)
+	if !ok || !sameDir(root, repo) || !sameDir(parent, repo) {
+		t.Fatalf("primary checkout: root=%q parent=%q ok=%v", root, parent, ok)
+	}
+	if _, _, ok := GitWorktreeRoots(context.Background(), sub); ok {
+		t.Fatal("subdirectory of a checkout must not resolve as a worktree root")
+	}
+	linked := filepath.Join(t.TempDir(), "feature")
+	if out, err := exec.Command("git", "-C", repo, "worktree", "add", "-q", linked, "-b", "feature").CombinedOutput(); err != nil {
+		t.Fatalf("worktree add: %v: %s", err, out)
+	}
+	root, parent, ok = GitWorktreeRoots(context.Background(), linked)
+	if !ok || !sameDir(root, linked) || !sameDir(parent, repo) {
+		t.Fatalf("linked worktree: root=%q parent=%q ok=%v", root, parent, ok)
+	}
+	if _, _, ok := GitWorktreeRoots(context.Background(), t.TempDir()); ok {
+		t.Fatal("a directory outside any repository must not resolve")
 	}
 }
