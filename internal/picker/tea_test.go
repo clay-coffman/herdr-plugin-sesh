@@ -2136,7 +2136,7 @@ func TestTeaModelAgentSortRanksStatusesAndPreservesSourceSlots(t *testing.T) {
 	}
 }
 
-func TestTeaModelAgentSortPromotesWorktreeFamilyByBestMember(t *testing.T) {
+func TestTeaModelAgentSortRanksWorktreeChildrenAboveParent(t *testing.T) {
 	items := []model.Session{
 		{Source: "herdr", Name: "unresolved", WorkspaceID: "w-unresolved", AgentStatus: "working", Worktree: model.WorktreeRelation{Linked: true, ParentWorkspaceID: "w-missing"}},
 		{Source: "herdr", Name: "child-idle", WorkspaceID: "w-child-idle", AgentStatus: "idle", Worktree: model.WorktreeRelation{Linked: true, ParentWorkspaceID: "w-parent"}},
@@ -2147,9 +2147,34 @@ func TestTeaModelAgentSortPromotesWorktreeFamilyByBestMember(t *testing.T) {
 
 	m := newTeaModel(items, Options{WorkspaceSort: "agent"})
 
-	want := []string{"parent", "child-blocked", "child-idle", "other", "unresolved"}
+	// Agent sort is flat: the blocked worktree lead takes the first row even
+	// though its parent workspace is open, so Enter on the initial selection
+	// lands on the workspace that wants attention. The parent has no agent
+	// status and sorts last.
+	want := []string{"child-blocked", "other", "unresolved", "child-idle", "parent"}
 	if got := sessionNames(m.list.All); !reflect.DeepEqual(got, want) {
-		t.Fatalf("agent family order=%v want %v", got, want)
+		t.Fatalf("agent order=%v want %v", got, want)
+	}
+	if current, ok := m.list.Current(); !ok || current.WorkspaceID != "w-child-blocked" {
+		t.Fatalf("initial selection=%#v ok=%v, want the blocked child", current, ok)
+	}
+}
+
+func TestTeaModelAgentSortRefreshLiftsBlockedChildAboveParent(t *testing.T) {
+	m := newTeaModel([]model.Session{
+		{Source: "herdr", Name: "parent", WorkspaceID: "w-parent", AgentStatus: "done"},
+		{Source: "herdr", Name: "child", WorkspaceID: "w-child", AgentStatus: "working", Worktree: model.WorktreeRelation{Linked: true, ParentWorkspaceID: "w-parent"}},
+	}, Options{WorkspaceSort: "agent"})
+
+	if got, want := sessionNames(m.list.All), []string{"parent", "child"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("initial order=%v want %v", got, want)
+	}
+
+	updated, _ := m.Update(agentStatusesMsg{statuses: map[string]string{"w-parent": "done", "w-child": "blocked"}})
+	m = updated.(teaModel)
+
+	if got, want := sessionNames(m.list.All), []string{"child", "parent"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("refreshed order=%v want %v", got, want)
 	}
 }
 
@@ -2163,7 +2188,7 @@ func TestSortHerdrWorkspacesGroupsChildrenBelowParent(t *testing.T) {
 		{Source: "herdr", Name: "child-a", WorkspaceID: "w-child-a", Worktree: model.WorktreeRelation{Linked: true, ParentWorkspaceID: "w-parent", ParentWorkspaceName: "parent"}},
 	}
 
-	sortHerdrWorkspaces(items, []string{"w-child-b", "w-unrelated", "w-parent", "w-child-a"})
+	sortHerdrWorkspaces(items, []string{"w-child-b", "w-unrelated", "w-parent", "w-child-a"}, true)
 
 	if got, want := sessionNames(items), []string{"configured", "parent", "directory", "child-b", "child-a", "unrelated"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("grouped order=%v want %v", got, want)
@@ -2178,7 +2203,7 @@ func TestSortHerdrWorkspacesRanksFamilyByMostRecentMember(t *testing.T) {
 		{Source: "herdr", Name: "unrelated", WorkspaceID: "w-unrelated"},
 	}
 
-	sortHerdrWorkspaces(items, []string{"w-child-b", "w-unrelated", "w-parent"})
+	sortHerdrWorkspaces(items, []string{"w-child-b", "w-unrelated", "w-parent"}, true)
 
 	if got, want := sessionNames(items), []string{"parent", "child-b", "child-a", "unrelated"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("recent grouped order=%v want %v", got, want)
@@ -2191,7 +2216,7 @@ func TestSortHerdrWorkspacesLeavesUnresolvedChildIndependent(t *testing.T) {
 		{Source: "herdr", Name: "other", WorkspaceID: "w-other"},
 	}
 
-	sortHerdrWorkspaces(items, []string{"w-other", "w-child"})
+	sortHerdrWorkspaces(items, []string{"w-other", "w-child"}, true)
 
 	if got, want := sessionNames(items), []string{"other", "unresolved"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("unresolved order=%v want %v", got, want)
@@ -2214,7 +2239,7 @@ func TestTeaModelGroupsWorktreeFamilyWithoutMutatingInput(t *testing.T) {
 	}
 }
 
-func TestTeaModelKeepsWorktreeFamilyAcrossSortModes(t *testing.T) {
+func TestTeaModelKeepsWorktreeFamilyOutsideAgentSort(t *testing.T) {
 	items := []model.Session{
 		{Source: "herdr", Name: "child", WorkspaceID: "w-child", AgentStatus: "blocked", Worktree: model.WorktreeRelation{Linked: true, ParentWorkspaceID: "w-parent"}},
 		{Source: "herdr", Name: "parent", WorkspaceID: "w-parent"},
@@ -2233,10 +2258,13 @@ func TestTeaModelKeepsWorktreeFamilyAcrossSortModes(t *testing.T) {
 
 	updated, _ = m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
 	m = updated.(teaModel)
-	if got, want := sessionNames(m.list.All), []string{"parent", "child", "other"}; !reflect.DeepEqual(got, want) {
+	// Agent sort is flat, so the blocked child leads and its parent, which has
+	// no agent status, falls behind the done workspace.
+	if got, want := sessionNames(m.list.All), []string{"child", "other", "parent"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("agent order=%v want %v", got, want)
 	}
 
+	// Leaving agent sort restores the family grouping.
 	updated, _ = m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
 	m = updated.(teaModel)
 	if got, want := sessionNames(m.list.All), []string{"parent", "child", "other"}; !reflect.DeepEqual(got, want) {

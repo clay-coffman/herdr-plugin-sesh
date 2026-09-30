@@ -286,7 +286,7 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 	case workspaceSortAgent:
 		initialOrder = agentWorkspaceOrder(items, workspaceOrder)
 	}
-	sortHerdrWorkspaces(items, initialOrder)
+	sortHerdrWorkspaces(items, initialOrder, workspaceSort != workspaceSortAgent)
 	list := New(items)
 	list.SeparatorAware = opts.SeparatorAware
 	list.DisableHomePrioritization = opts.DisableHomePrioritization
@@ -666,7 +666,7 @@ func (m teaModel) resortWorkspaces() {
 	case workspaceSortAgent:
 		order = agentWorkspaceOrder(m.list.All, m.workspaceOrder)
 	}
-	sortHerdrWorkspaces(m.list.All, order)
+	sortHerdrWorkspaces(m.list.All, order, m.workspaceSort != workspaceSortAgent)
 }
 
 func (m teaModel) toggleWorkspaceSort() (teaModel, tea.Cmd) {
@@ -821,7 +821,13 @@ func agentWorkspaceOrder(items []sessionmodel.Session, workspaceOrder []string) 
 	return order
 }
 
-func sortHerdrWorkspaces(items []sessionmodel.Session, order []string) {
+// sortHerdrWorkspaces reorders the Herdr rows in items to follow order, leaving
+// rows from other sources where they are. With groupFamilies set, a linked
+// worktree is kept beneath its open parent workspace and the family takes its
+// best member's rank. Agent sort passes false: its job is to put the workspace
+// that wants attention on the first row, and a parent-first family would put
+// the repository root above a blocked worktree lead instead.
+func sortHerdrWorkspaces(items []sessionmodel.Session, order []string, groupFamilies bool) {
 	ranks := make(map[string]int, len(order))
 	for i, id := range order {
 		if _, exists := ranks[id]; id != "" && !exists {
@@ -861,7 +867,7 @@ func sortHerdrWorkspaces(items []sessionmodel.Session, order []string) {
 		entry := &workspaces[i]
 		familyID := entry.session.WorkspaceID
 		parentID := entry.session.Worktree.ParentWorkspaceID
-		if _, parentPresent := byID[parentID]; parentID != "" && parentPresent {
+		if _, parentPresent := byID[parentID]; groupFamilies && parentID != "" && parentPresent {
 			familyID = parentID
 		}
 		entry.parent = entry.session.WorkspaceID == familyID

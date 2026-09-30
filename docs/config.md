@@ -276,10 +276,11 @@ overrides.
 
 The native picker marks a linked Git worktree workspace with a purple
 `↳ herdr` type label, replacing the normal Herdr sheep icon, and groups it
-immediately beneath its open parent workspace in workspace, recent, and agent
-sort modes, matching Herdr's sidebar. In agent mode, the highest-priority status
-on any family member ranks the whole family; the parent remains first and its
-children follow in agent-priority order. With icons disabled, the label is `[↳ herdr]`.
+immediately beneath its open parent workspace in workspace and recent sort
+modes, matching Herdr's sidebar. Agent mode does not group: every workspace is
+ranked by its own agent status, so a blocked worktree lead takes the first row
+ahead of its open parent, and the initial selection is the workspace that wants
+attention. With icons disabled, the label is `[↳ herdr]`.
 When the parent is visible, `├─` and `└─` branches reinforce the family in the
 workspace-name column. Wide layouts show the worktree path in the secondary
 column when space permits; narrow layouts retain the purple type label. This is
